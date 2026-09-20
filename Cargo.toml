@@ -1,0 +1,58 @@
+[package]
+name = "windows-desktop-pet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { version = "1.0.104", default-features = false }
+image = { version = "0.25.10", default-features = false, features = ["default-formats"] }
+rand = { version = "0.10.3", default-features = false, features = ["thread_rng"] }
+serde = { version = "1.0.229", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
+widestring = { version = "1.2.1", default-features = false }
+
+[dependencies.windows-sys]
+version = "0.61.2"
+default-features = false
+features = [
+    "Win32",
+        "Win32_Graphics_Gdi",
+        "Win32_System",
+            "Win32_System_Diagnostics",
+                "Win32_System_Diagnostics_Debug",
+            "Win32_System_LibraryLoader",
+        "Win32_UI",
+            "Win32_UI_Shell",
+            "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+winres = { version = "0.1.12", default-features = false }
+
+[lints.clippy]
+absolute_paths = "warn"
+assigning_clones = "warn"
+bool_to_int_with_if = "warn"
+branches_sharing_code = "warn"
+cast_lossless = "warn"
+cloned_instead_of_copied = "warn"
+collection_is_never_read = "warn"
+elidable_lifetime_names = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+if_not_else = "warn"
+implicit_clone = "warn"
+inconsistent_struct_constructor = "warn"
+inefficient_to_string = "warn"
+manual_instant_elapsed = "warn"
+manual_string_new = "warn"
+map_unwrap_or = "warn"
+match_bool = "warn"
+match_same_arms = "warn"
+needless_collect = "warn"
+needless_continue = "warn"
+suboptimal_flops = "warn"
+too_many_arguments = "allow"
+trait_duplication_in_bounds = "warn"
+use_self = "warn"
+wildcard_imports = "warn"

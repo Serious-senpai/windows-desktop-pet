@@ -1,0 +1,101 @@
+{
+    "spritesheet_path": "spritesheet.webp",
+    "rows": 9,
+    "columns": 8,
+    "initial_position_xy": [
+        0,
+        10000
+    ],
+    "random_action_interval_secs": [
+        30,
+        60
+    ],
+    "step_per_frame": 10,
+    "interval_ms": 300,
+    "gravity": true,
+    "actions": {
+        "idle": [
+            {
+                "frames": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5
+                ],
+                "repeat": true
+            },
+            {
+                "frames": [
+                    24,
+                    25,
+                    26,
+                    27
+                ],
+                "repeat": false
+            },
+            {
+                "frames": [
+                    40,
+                    41,
+                    42,
+                    43,
+                    44,
+                    45,
+                    46,
+                    47
+                ],
+                "repeat": false
+            },
+            {
+                "frames": [
+                    48,
+                    49,
+                    50,
+                    51,
+                    52,
+                    53
+                ],
+                "repeat": true
+            },
+            {
+                "frames": [
+                    64,
+                    65,
+                    66,
+                    67,
+                    68,
+                    69
+                ],
+                "repeat": false
+            }
+        ],
+        "run_right": {
+            "frames": [
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+            ],
+            "repeat": true
+        },
+        "run_left": {
+            "frames": [
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+                23
+            ],
+            "repeat": true
+        }
+    }
+}

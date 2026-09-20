@@ -1,0 +1,13 @@
+{
+    "editor.formatOnSave": true,
+    "editor.tabSize": 4,
+    "extensions.ignoreRecommendations": false,
+    "git.autorefresh": true,
+    "git.enabled": true,
+    "rust-analyzer.rustfmt.extraArgs": [
+        "+nightly-2026-05-01"
+    ],
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+}
