@@ -15,6 +15,7 @@ use std::{env, fs, mem, ptr};
 use anyhow::Context;
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::SystemServices::MK_LBUTTON;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, IDC_ARROW, KillTimer,
     LoadCursorW, LoadIconW, MSG, PostMessageW, PostQuitMessage, RegisterClassExW,
@@ -82,7 +83,7 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_LBUTTONDOWN => {
-            if wparam & 0x1 != 0 {
+            if u32::try_from(wparam).unwrap_or_default() == MK_LBUTTON {
                 let (offset_x, offset_y) = match get_lparam_xy(lparam) {
                     Ok((x, y)) => (x, y),
                     Err(e) => {
