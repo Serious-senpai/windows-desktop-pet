@@ -19,19 +19,20 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, IDC_ARROW, KillTimer,
     LoadCursorW, LoadIconW, MSG, PostMessageW, PostQuitMessage, RegisterClassExW,
     SW_SHOWNOACTIVATE, SetTimer, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND, WM_DESTROY,
-    WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows_sys::w;
 
 use crate::animator::Animator;
 use crate::config::{
-    Config, MENU_EXIT, TIMER_ID_CHANGE_ACTION, TIMER_ID_RENDER, WINDOW_CLASS_NAME, WM_TRAYICON,
+    Config, FPS_MS_FAST, MENU_EXIT, TIMER_ID_CHANGE_ACTION, TIMER_ID_FPS, WINDOW_CLASS_NAME,
+    WM_TRAYICON,
 };
 use crate::loader::SpritesheetLoader;
 use crate::renderer::Renderer;
 use crate::tray::TrayIcon;
-use crate::utils::DropGuard;
+use crate::utils::{DropGuard, get_lparam_xy};
 
 static ANIMATOR: AtomicPtr<Animator> = AtomicPtr::new(ptr::null_mut());
 static TRAY_ICON: AtomicPtr<TrayIcon> = AtomicPtr::new(ptr::null_mut());
@@ -52,7 +53,7 @@ unsafe extern "system" fn window_proc(
         }
         WM_TIMER => {
             match wparam {
-                TIMER_ID_RENDER => {
+                TIMER_ID_FPS => {
                     let animator = ANIMATOR.load(Ordering::Acquire);
                     // SAFETY: Single-thread
                     if let Some(animator) = unsafe { animator.as_mut() } {
@@ -65,7 +66,7 @@ unsafe extern "system" fn window_proc(
                     let animator = ANIMATOR.load(Ordering::Acquire);
                     // SAFETY: Single-thread
                     if let Some(animator) = unsafe { animator.as_mut() } {
-                        if let Err(e) = animator.next_action() {
+                        if let Err(e) = animator.run(hwnd) {
                             log!("Cannot change action: {e:?}");
                         }
 
@@ -78,6 +79,37 @@ unsafe extern "system" fn window_proc(
                     log!("Unknown timer id: {other}");
                 }
             }
+            0
+        }
+        WM_LBUTTONDOWN => {
+            if wparam & 0x1 != 0 {
+                let (offset_x, offset_y) = match get_lparam_xy(lparam) {
+                    Ok((x, y)) => (x, y),
+                    Err(e) => {
+                        log!("get_lparam_xy error: {e:?}");
+                        return 0;
+                    }
+                };
+
+                let animator = ANIMATOR.load(Ordering::Acquire);
+                // SAFETY: Single-thread
+                if let Some(animator) = unsafe { animator.as_mut() }
+                    && let Err(e) = animator.lift(hwnd, offset_x, offset_y)
+                {
+                    log!("Cannot lift: {e:?}");
+                }
+            }
+            0
+        }
+        WM_LBUTTONUP => {
+            let animator = ANIMATOR.load(Ordering::Acquire);
+            // SAFETY: Single-thread
+            if let Some(animator) = unsafe { animator.as_mut() }
+                && let Err(e) = animator.drop(hwnd)
+            {
+                log!("Cannot drop: {e:?}");
+            }
+
             0
         }
         WM_TRAYICON => {
@@ -168,7 +200,7 @@ fn _main() -> anyhow::Result<()> {
     let file = fs::File::open(&config_path).context("Cannot open config file")?;
     let config = serde_json::from_reader::<_, Config>(file).context("Cannot parse config file")?;
     log!("Loaded config: {config:?}");
-    config.check().context("Config is invalid")?;
+    config.validate().context("Config is invalid")?;
 
     let spritesheet_path = current_dir.join(&config.spritesheet_path);
     log!("Loading spritesheet from {}", spritesheet_path.display());
@@ -180,6 +212,11 @@ fn _main() -> anyhow::Result<()> {
     })?;
     let loader = SpritesheetLoader::new(BufReader::new(spritesheet), config.rows, config.columns)
         .context("Cannot load spritesheet")?;
+    log!(
+        "Frame width {}, frame height {}",
+        loader.frame_width(),
+        loader.frame_height(),
+    );
 
     let renderer = Renderer::new(
         loader.frame_width().try_into()?,
@@ -198,15 +235,16 @@ fn _main() -> anyhow::Result<()> {
         ShowWindow(window, SW_SHOWNOACTIVATE);
     }
 
-    if unsafe { SetTimer(window, TIMER_ID_RENDER, config.interval_ms, None) } == 0 {
+    // Initial state: drop -> FPS_MS_FAST -> idle -> FPS_MS_SLOW
+    if unsafe { SetTimer(window, TIMER_ID_FPS, FPS_MS_FAST, None) } == 0 {
         return Err(Error::last_os_error()).context("SetTimer error");
     }
 
     let guard1 = DropGuard::new((), |_| unsafe {
-        KillTimer(window, TIMER_ID_RENDER);
+        KillTimer(window, TIMER_ID_FPS);
     });
 
-    let animator = Animator::new(config, loader, renderer).context("Cannot create animator")?;
+    let mut animator = Animator::new(config, loader, renderer).context("Cannot create animator")?;
     animator
         .reset_change_action_timer(window)
         .context("Cannot initialize change action timer")?;

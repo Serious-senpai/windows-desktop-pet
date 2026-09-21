@@ -1,3 +1,9 @@
+use std::io::Error;
+
+use anyhow::Context;
+use windows_sys::Win32::Foundation::{LPARAM, POINT};
+use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
 pub struct DropGuard<T, F>
 where
     F: FnOnce(T),
@@ -29,4 +35,20 @@ where
             drop_fn(argument);
         }
     }
+}
+
+pub fn get_lparam_xy(lparam: LPARAM) -> anyhow::Result<(i32, i32)> {
+    let x = i32::try_from(lparam & 0xFFFF)?;
+    let y = i32::try_from((lparam >> 16) & 0xFFFF)?;
+
+    Ok((x, y))
+}
+
+pub fn get_cursor_pos() -> anyhow::Result<POINT> {
+    let mut cursor = POINT::default();
+    if unsafe { GetCursorPos(&mut cursor) } == 0 {
+        return Err(Error::last_os_error()).context("GetCursorPos error");
+    }
+
+    Ok(cursor)
 }

@@ -2,73 +2,83 @@
     "spritesheet_path": "spritesheet.webp",
     "rows": 9,
     "columns": 8,
-    "initial_position_xy": [
-        0,
-        10000
-    ],
     "random_action_interval_secs": [
         30,
         60
     ],
     "step_per_frame": 10,
-    "interval_ms": 300,
-    "gravity": true,
+    "gravity": 8,
     "actions": {
         "idle": [
             {
-                "frames": [
-                    0,
-                    1,
-                    2,
-                    3,
-                    4,
-                    5
-                ],
-                "repeat": true
+                "action": {
+                    "frames": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5
+                    ],
+                    "repeat": true
+                },
+                "weight": 5
             },
             {
-                "frames": [
-                    24,
-                    25,
-                    26,
-                    27
-                ],
-                "repeat": false
+                "action": {
+                    "frames": [
+                        24,
+                        25,
+                        26,
+                        27
+                    ],
+                    "repeat": false
+                },
+                "weight": 1
             },
             {
-                "frames": [
-                    40,
-                    41,
-                    42,
-                    43,
-                    44,
-                    45,
-                    46,
-                    47
-                ],
-                "repeat": false
+                "action": {
+                    "frames": [
+                        40,
+                        41,
+                        42,
+                        43,
+                        44,
+                        45,
+                        46,
+                        47
+                    ],
+                    "repeat": false
+                },
+                "weight": 1
             },
             {
-                "frames": [
-                    48,
-                    49,
-                    50,
-                    51,
-                    52,
-                    53
-                ],
-                "repeat": true
+                "action": {
+                    "frames": [
+                        48,
+                        49,
+                        50,
+                        51,
+                        52,
+                        53
+                    ],
+                    "repeat": false
+                },
+                "weight": 1
             },
             {
-                "frames": [
-                    64,
-                    65,
-                    66,
-                    67,
-                    68,
-                    69
-                ],
-                "repeat": false
+                "action": {
+                    "frames": [
+                        64,
+                        65,
+                        66,
+                        67,
+                        68,
+                        69
+                    ],
+                    "repeat": false
+                },
+                "weight": 1
             }
         ],
         "run_right": {
@@ -96,6 +106,22 @@
                 23
             ],
             "repeat": true
+        },
+        "lift": {
+            "frames": [
+                56,
+                57,
+                58,
+                59,
+                60
+            ],
+            "repeat": true
+        },
+        "drop": {
+            "frames": [
+                35
+            ],
+            "repeat": false
         }
     }
 }
