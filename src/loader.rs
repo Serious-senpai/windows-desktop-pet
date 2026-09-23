@@ -5,9 +5,9 @@ use anyhow::Context;
 use image::ImageReader;
 
 pub struct SpritesheetLoader {
-    _frame_width: usize,
-    _frame_height: usize,
-    _frames: Vec<Vec<u32>>,
+    frame_width: usize,
+    frame_height: usize,
+    frames: Vec<Vec<u32>>,
 }
 
 impl SpritesheetLoader {
@@ -76,21 +76,21 @@ impl SpritesheetLoader {
         }
 
         Ok(Self {
-            _frame_width: frame_width,
-            _frame_height: frame_height,
-            _frames: frames,
+            frame_width,
+            frame_height,
+            frames,
         })
     }
 
     pub fn frame_width(&self) -> usize {
-        self._frame_width
+        self.frame_width
     }
 
     pub fn frame_height(&self) -> usize {
-        self._frame_height
+        self.frame_height
     }
 
     pub fn frame(&self, index: usize) -> Option<&[u32]> {
-        Some(self._frames.get(index)?.as_slice())
+        Some(self.frames.get(index)?.as_slice())
     }
 }

@@ -17,15 +17,15 @@ use windows_sys::w;
 use crate::config::{MENU_EXIT, TRAY_ICON_ID, TRAY_ICON_TOOLTIP, WM_TRAYICON};
 
 pub struct TrayIcon {
-    _window: HWND,
-    _data: NOTIFYICONDATAW,
+    window: HWND,
+    data: NOTIFYICONDATAW,
 }
 
 impl TrayIcon {
     pub fn new(window: HWND, icon: HICON) -> anyhow::Result<Self> {
         let mut result = Self {
-            _window: window,
-            _data: NOTIFYICONDATAW {
+            window,
+            data: NOTIFYICONDATAW {
                 cbSize: mem::size_of::<NOTIFYICONDATAW>().try_into()?,
                 hWnd: window,
                 uID: TRAY_ICON_ID,
@@ -45,11 +45,11 @@ impl TrayIcon {
         };
 
         let tip = TRAY_ICON_TOOLTIP.as_slice_with_nul();
-        result._data.szTip[..tip.len()].copy_from_slice(tip);
-        result._data.szInfo[..tip.len()].copy_from_slice(tip);
-        result._data.szInfoTitle[..tip.len()].copy_from_slice(tip);
+        result.data.szTip[..tip.len()].copy_from_slice(tip);
+        result.data.szInfo[..tip.len()].copy_from_slice(tip);
+        result.data.szInfoTitle[..tip.len()].copy_from_slice(tip);
 
-        if unsafe { Shell_NotifyIconW(NIM_ADD, &mut result._data) } == 0 {
+        if unsafe { Shell_NotifyIconW(NIM_ADD, &result.data) } == 0 {
             anyhow::bail!("Shell_NotifyIconW error");
         }
 
@@ -68,7 +68,7 @@ impl TrayIcon {
 
         let mut cursor = POINT::default();
         unsafe {
-            SetForegroundWindow(self._window);
+            SetForegroundWindow(self.window);
             GetCursorPos(&mut cursor);
             TrackPopupMenu(
                 menu,
@@ -76,10 +76,10 @@ impl TrayIcon {
                 cursor.x,
                 cursor.y,
                 0,
-                self._window,
+                self.window,
                 ptr::null(),
             );
-            PostMessageW(self._window, WM_NULL, 0, 0);
+            PostMessageW(self.window, WM_NULL, 0, 0);
         }
 
         Ok(())
@@ -89,7 +89,7 @@ impl TrayIcon {
 impl Drop for TrayIcon {
     fn drop(&mut self) {
         unsafe {
-            Shell_NotifyIconW(NIM_DELETE, &mut self._data);
+            Shell_NotifyIconW(NIM_DELETE, &self.data);
         }
     }
 }

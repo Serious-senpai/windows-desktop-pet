@@ -57,10 +57,10 @@ unsafe extern "system" fn window_proc(
                 TIMER_ID_FPS => {
                     let animator = ANIMATOR.load(Ordering::Acquire);
                     // SAFETY: Single-thread
-                    if let Some(animator) = unsafe { animator.as_mut() } {
-                        if let Err(e) = animator.render_next_frame(hwnd) {
-                            log!("Cannot render next frame: {e:?}");
-                        }
+                    if let Some(animator) = unsafe { animator.as_mut() }
+                        && let Err(e) = animator.render_next_frame(hwnd)
+                    {
+                        log!("Cannot render next frame: {e:?}");
                     }
                 }
                 TIMER_ID_CHANGE_ACTION => {
@@ -126,11 +126,10 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_COMMAND => {
-            match usize::from(wparam) {
-                MENU_EXIT => unsafe {
+            if let MENU_EXIT = wparam {
+                unsafe {
                     PostMessageW(hwnd, WM_CLOSE, 0, 0);
-                },
-                _ => {}
+                }
             }
             0
         }

@@ -13,12 +13,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{ULW_ALPHA, UpdateLayeredWindow
 use crate::config::DEFAULT_BLENDFUNCTION;
 
 pub struct Renderer {
-    _pixels: *mut c_void,
-    _bitmap: HBITMAP,
-    _memory_dc: HDC,
-    _screen_dc: HDC,
-    _size: SIZE,
-    _area: usize,
+    pixels: *mut c_void,
+    bitmap: HBITMAP,
+    memory_dc: HDC,
+    screen_dc: HDC,
+    size: SIZE,
+    area: usize,
 }
 
 impl Renderer {
@@ -28,15 +28,15 @@ impl Renderer {
         }
 
         let mut result = Self {
-            _pixels: ptr::null_mut(),
-            _bitmap: ptr::null_mut(),
-            _memory_dc: ptr::null_mut(),
-            _screen_dc: ptr::null_mut(),
-            _size: SIZE {
+            pixels: ptr::null_mut(),
+            bitmap: ptr::null_mut(),
+            memory_dc: ptr::null_mut(),
+            screen_dc: ptr::null_mut(),
+            size: SIZE {
                 cx: width,
                 cy: height,
             },
-            _area: usize::try_from(width)
+            area: usize::try_from(width)
                 .and_then(|w| usize::try_from(height).map(|h| w.strict_mul(h)))
                 .context("usize::try_from failure")?,
         };
@@ -57,32 +57,32 @@ impl Renderer {
             },
             bmiColors: [RGBQUAD::default()],
         };
-        result._bitmap = unsafe {
+        result.bitmap = unsafe {
             CreateDIBSection(
                 ptr::null_mut(),
                 &bitmap_info,
                 DIB_RGB_COLORS,
-                &mut result._pixels,
+                &mut result.pixels,
                 ptr::null_mut(),
                 0,
             )
         };
-        if result._bitmap.is_null() {
+        if result.bitmap.is_null() {
             return Err(Error::last_os_error()).context("CreateDIBSection error");
         }
 
-        result._memory_dc = unsafe { CreateCompatibleDC(ptr::null_mut()) };
-        if result._memory_dc.is_null() {
+        result.memory_dc = unsafe { CreateCompatibleDC(ptr::null_mut()) };
+        if result.memory_dc.is_null() {
             return Err(Error::last_os_error()).context("CreateCompatibleDC error");
         }
 
-        let old_bitmap = unsafe { SelectObject(result._memory_dc, result._bitmap) };
+        let old_bitmap = unsafe { SelectObject(result.memory_dc, result.bitmap) };
         if old_bitmap.is_null() {
             anyhow::bail!("SelectObject error");
         }
 
-        result._screen_dc = unsafe { GetDC(ptr::null_mut()) };
-        if result._screen_dc.is_null() {
+        result.screen_dc = unsafe { GetDC(ptr::null_mut()) };
+        if result.screen_dc.is_null() {
             anyhow::bail!("GetDC error");
         }
 
@@ -90,7 +90,7 @@ impl Renderer {
     }
 
     pub fn pixels_mut(&mut self) -> &mut [u32] {
-        unsafe { slice::from_raw_parts_mut(self._pixels.cast(), self._area) }
+        unsafe { slice::from_raw_parts_mut(self.pixels.cast(), self.area) }
     }
 
     pub fn update(&self, window: HWND, position: &POINT) -> anyhow::Result<()> {
@@ -98,10 +98,10 @@ impl Renderer {
         let result = unsafe {
             UpdateLayeredWindow(
                 window,
-                self._screen_dc,
+                self.screen_dc,
                 position,
-                &self._size,
-                self._memory_dc,
+                &self.size,
+                self.memory_dc,
                 &POINT_ZERO,
                 0,
                 &DEFAULT_BLENDFUNCTION,
@@ -119,19 +119,19 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
-        if !self._screen_dc.is_null() {
+        if !self.screen_dc.is_null() {
             unsafe {
-                ReleaseDC(ptr::null_mut(), self._screen_dc);
+                ReleaseDC(ptr::null_mut(), self.screen_dc);
             }
         }
-        if !self._memory_dc.is_null() {
+        if !self.memory_dc.is_null() {
             unsafe {
-                DeleteDC(self._memory_dc);
+                DeleteDC(self.memory_dc);
             }
         }
-        if !self._bitmap.is_null() {
+        if !self.bitmap.is_null() {
             unsafe {
-                DeleteObject(self._bitmap);
+                DeleteObject(self.bitmap);
             }
         }
     }

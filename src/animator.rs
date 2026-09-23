@@ -2,8 +2,9 @@ use std::io::Error;
 
 use anyhow::Context;
 use rand::RngExt;
+use rand::distr::Distribution;
+use rand::distr::weighted::WeightedIndex;
 use rand::rngs::ThreadRng;
-use rand::seq::IndexedRandom;
 use windows_sys::Win32::Foundation::{HWND, POINT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN, SetTimer,
@@ -35,6 +36,7 @@ pub struct Animator {
     state: _State,
     next_frame_ii: usize,
     current_position: POINT,
+    idle_range: WeightedIndex<u16>,
 }
 
 impl Animator {
@@ -58,16 +60,27 @@ impl Animator {
             y: 0,
         };
 
+        let idle_range = WeightedIndex::new(
+            config
+                .actions
+                .idle
+                .iter()
+                .map(|action| action.weight)
+                .collect::<Vec<u16>>(),
+        )
+        .context("Cannot construct distribution")?;
+
         Ok(Self {
-            config: config,
-            loader: loader,
-            renderer: renderer,
-            rng: rng,
-            max_x: max_x,
-            max_y: max_y,
+            config,
+            loader,
+            renderer,
+            rng,
+            max_x,
+            max_y,
             state: _State::Drop { v: 0 },
             next_frame_ii: 0,
             current_position: initial_position,
+            idle_range,
         })
     }
 
@@ -100,17 +113,8 @@ impl Animator {
         match &self.state {
             _State::Idle(..) => Ok(()),
             _State::Run { .. } | _State::Drop { .. } | _State::Custom(..) => {
-                let range = Vec::from_iter(0..self.config.actions.idle.len());
-                let index = range
-                    .choose_weighted(&mut self.rng, |&index| {
-                        match self.config.actions.idle.get(index) {
-                            Some(action) => action.weight,
-                            None => 0,
-                        }
-                    })
-                    .unwrap_or(&0);
-
-                self.set_state(_State::Idle(*index));
+                let index = self.idle_range.sample(&mut self.rng);
+                self.set_state(_State::Idle(index));
                 self.reset_fps_timer(window, FPS_MS_SLOW)?;
                 Ok(())
             }
