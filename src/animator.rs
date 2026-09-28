@@ -1,4 +1,5 @@
 use std::io::Error;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use rand::RngExt;
@@ -11,19 +12,19 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::config::{
-    Config, FPS_MS_FAST, FPS_MS_NORMAL, FPS_MS_SLOW, TIMER_ID_CHANGE_ACTION, TIMER_ID_FPS,
+    Config, FPS_MS_FAST, FPS_MS_MAXIMUM_ACTION, FPS_MS_NORMAL, FPS_MS_SLOW, TIMER_ID_FPS,
+    TIMER_ID_START_RUNNING,
 };
 use crate::loader::SpritesheetLoader;
 use crate::renderer::Renderer;
 use crate::utils::get_cursor_pos;
 
 #[derive(Debug)]
-enum _State {
+enum State {
     Idle(usize),
     Run { x: i32 },
     Lift { offset_x: i32, offset_y: i32 },
     Drop { v: i32 },
-    Custom(String),
 }
 
 pub struct Animator {
@@ -33,7 +34,8 @@ pub struct Animator {
     rng: ThreadRng,
     max_x: i32,
     max_y: i32,
-    state: _State,
+    state: State,
+    action_frame_last_update: Instant,
     next_frame_ii: usize,
     current_position: POINT,
     idle_range: WeightedIndex<u16>,
@@ -60,15 +62,10 @@ impl Animator {
             y: 0,
         };
 
-        let idle_range = WeightedIndex::new(
-            config
-                .actions
-                .idle
-                .iter()
-                .map(|action| action.weight)
-                .collect::<Vec<u16>>(),
-        )
-        .context("Cannot construct distribution")?;
+        let idle_range = WeightedIndex::new(config.actions.idle.iter().map(|action| action.weight))
+            .context("Cannot construct distribution")?;
+
+        let now = Instant::now();
 
         Ok(Self {
             config,
@@ -77,14 +74,17 @@ impl Animator {
             rng,
             max_x,
             max_y,
-            state: _State::Drop { v: 0 },
+            state: State::Drop { v: 0 },
+            action_frame_last_update: now
+                .checked_sub(Duration::from_millis(FPS_MS_MAXIMUM_ACTION))
+                .unwrap_or(now),
             next_frame_ii: 0,
             current_position: initial_position,
             idle_range,
         })
     }
 
-    fn set_state(&mut self, state: _State) {
+    fn set_state(&mut self, state: State) {
         self.state = state;
         self.next_frame_ii = 0;
     }
@@ -94,7 +94,7 @@ impl Animator {
         let change_action_ms = self.rng.random_range(
             random_range.0.saturating_mul(1000)..=random_range.1.saturating_mul(1000),
         );
-        if unsafe { SetTimer(window, TIMER_ID_CHANGE_ACTION, change_action_ms, None) } == 0 {
+        if unsafe { SetTimer(window, TIMER_ID_START_RUNNING, change_action_ms, None) } == 0 {
             return Err(Error::last_os_error()).context("SetTimer error");
         }
 
@@ -111,10 +111,9 @@ impl Animator {
 
     pub fn idle(&mut self, window: HWND) -> anyhow::Result<()> {
         match &self.state {
-            _State::Idle(..) => Ok(()),
-            _State::Run { .. } | _State::Drop { .. } | _State::Custom(..) => {
+            State::Idle(..) | State::Run { .. } | State::Drop { .. } => {
                 let index = self.idle_range.sample(&mut self.rng);
-                self.set_state(_State::Idle(index));
+                self.set_state(State::Idle(index));
                 self.reset_fps_timer(window, FPS_MS_SLOW)?;
                 Ok(())
             }
@@ -126,8 +125,8 @@ impl Animator {
 
     pub fn run(&mut self, window: HWND) -> anyhow::Result<()> {
         match &self.state {
-            _State::Idle(..) | _State::Run { .. } => {
-                let next_state = _State::Run {
+            State::Idle(..) | State::Run { .. } => {
+                let next_state = State::Run {
                     x: self.rng.random_range(0..=self.max_x),
                 };
                 self.set_state(next_state);
@@ -141,15 +140,15 @@ impl Animator {
     }
 
     pub fn lift(&mut self, window: HWND, offset_x: i32, offset_y: i32) -> anyhow::Result<()> {
-        self.set_state(_State::Lift { offset_x, offset_y });
+        self.set_state(State::Lift { offset_x, offset_y });
         self.reset_fps_timer(window, FPS_MS_FAST)?;
         Ok(())
     }
 
     pub fn drop(&mut self, window: HWND) -> anyhow::Result<()> {
         match &self.state {
-            _State::Lift { .. } => {
-                self.set_state(_State::Drop { v: 0 });
+            State::Lift { .. } => {
+                self.set_state(State::Drop { v: 0 });
                 self.reset_fps_timer(window, FPS_MS_NORMAL)?;
                 Ok(())
             }
@@ -159,24 +158,12 @@ impl Animator {
         }
     }
 
-    pub fn custom(&mut self, name: String) -> anyhow::Result<()> {
-        match &self.state {
-            _State::Idle(..) | _State::Run { .. } => {
-                self.set_state(_State::Custom(name));
-                Ok(())
-            }
-            other => {
-                anyhow::bail!("Cannot transition to Custom({name:?}) from {other:?}");
-            }
-        }
-    }
-
     /// Renders the next frame of the current action and updates the window.
     ///
     /// This function is called every frame, so it has to be extremely lightweight.
     pub fn render_next_frame(&mut self, window: HWND) -> anyhow::Result<()> {
         let action = match &mut self.state {
-            _State::Idle(index) => {
+            State::Idle(index) => {
                 &self
                     .config
                     .actions
@@ -185,7 +172,7 @@ impl Animator {
                     .context("Invalid idle action index")?
                     .action
             }
-            _State::Run { x } => {
+            State::Run { x } => {
                 let dx = x.saturating_sub(self.current_position.x);
 
                 if dx == 0 {
@@ -202,14 +189,14 @@ impl Animator {
                     &self.config.actions.run_left
                 }
             }
-            _State::Lift { offset_x, offset_y } => {
+            State::Lift { offset_x, offset_y } => {
                 let cursor = get_cursor_pos().context("Cannot get cursor position")?;
 
                 self.current_position.x = cursor.x.saturating_sub(*offset_x);
                 self.current_position.y = cursor.y.saturating_sub(*offset_y);
                 &self.config.actions.lift
             }
-            _State::Drop { v } => {
+            State::Drop { v } => {
                 self.current_position.y = self.current_position.y.saturating_add(*v);
                 *v = v.saturating_add(self.config.gravity);
                 if self.current_position.y >= self.max_y {
@@ -220,21 +207,28 @@ impl Animator {
 
                 &self.config.actions.drop
             }
-            _State::Custom(..) => {
-                anyhow::bail!("Custom actions are not implemented yet");
-            }
         };
 
-        // If the action is not repeatable, we stay at the final frame.
-        if self.next_frame_ii >= action.frames.len() && action.repeat {
-            self.next_frame_ii = 0;
-        }
+        if self.action_frame_last_update.elapsed().as_millis() >= FPS_MS_MAXIMUM_ACTION.into() {
+            self.action_frame_last_update = Instant::now();
 
-        if let Some(frame_index) = action.frames.get(self.next_frame_ii)
-            && let Some(frame) = self.loader.frame(*frame_index)
-        {
-            self.renderer.pixels_mut().copy_from_slice(frame);
-            self.next_frame_ii = self.next_frame_ii.wrapping_add(1);
+            if self.next_frame_ii >= action.frames.len() {
+                if action.repeat {
+                    self.next_frame_ii = 0;
+                } else if let State::Idle(..) = &self.state {
+                    // Transition to a new idle action when the current one is finished
+                    self.idle(window).context("Cannot transition to Idle")?;
+                    self.next_frame_ii = 0;
+                    return self.render_next_frame(window);
+                }
+            }
+
+            if let Some(frame_index) = action.frames.get(self.next_frame_ii)
+                && let Some(frame) = self.loader.frame(*frame_index)
+            {
+                self.renderer.pixels_mut().copy_from_slice(frame);
+                self.next_frame_ii = self.next_frame_ii.wrapping_add(1);
+            }
         }
 
         self.renderer

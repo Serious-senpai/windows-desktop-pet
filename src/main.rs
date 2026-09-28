@@ -27,7 +27,7 @@ use windows_sys::w;
 
 use crate::animator::Animator;
 use crate::config::{
-    Config, FPS_MS_FAST, MENU_EXIT, TIMER_ID_CHANGE_ACTION, TIMER_ID_FPS, WINDOW_CLASS_NAME,
+    Config, FPS_MS_FAST, MENU_EXIT, TIMER_ID_FPS, TIMER_ID_START_RUNNING, WINDOW_CLASS_NAME,
     WM_TRAYICON,
 };
 use crate::loader::SpritesheetLoader;
@@ -63,7 +63,7 @@ unsafe extern "system" fn window_proc(
                         log!("Cannot render next frame: {e:?}");
                     }
                 }
-                TIMER_ID_CHANGE_ACTION => {
+                TIMER_ID_START_RUNNING => {
                     let animator = ANIMATOR.load(Ordering::Acquire);
                     // SAFETY: Single-thread
                     if let Some(animator) = unsafe { animator.as_mut() } {
@@ -249,7 +249,7 @@ fn _main() -> anyhow::Result<()> {
         .reset_change_action_timer(window)
         .context("Cannot initialize change action timer")?;
     let guard2 = DropGuard::new((), |_| unsafe {
-        KillTimer(window, TIMER_ID_CHANGE_ACTION);
+        KillTimer(window, TIMER_ID_START_RUNNING);
     });
 
     ANIMATOR.store(Box::into_raw(Box::new(animator)), Ordering::Release);

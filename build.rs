@@ -25,9 +25,7 @@ fn main() {
     // Ignore error when creating symlinks, as the target file may already exist
     let exe_dir = root.join("target").join(PROFILE);
     let _ = fs::symlink_file(
-        root.join("assets")
-            .join("miku.codex-pet")
-            .join("config.json"),
+        root.join("assets").join("config.json"),
         exe_dir.join("config.json"),
     );
     let _ = fs::symlink_file(
