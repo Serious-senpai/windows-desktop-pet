@@ -1,18 +1,11 @@
-use std::io::Error;
-
 use anyhow::Context;
 use rand::RngExt;
 use rand::distr::Distribution;
 use rand::distr::weighted::WeightedIndex;
 use rand::rngs::ThreadRng;
-use windows_sys::Win32::Foundation::{HWND, POINT};
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN, SetTimer,
-};
+use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 
-use crate::config::{
-    Config, FPS_MS_FAST, FPS_MS_NORMAL, FPS_MS_SLOW, TIMER_ID_CHANGE_ACTION, TIMER_ID_FPS,
-};
+use crate::config::{Config, FPS_MS_FAST, FPS_MS_NORMAL, FPS_MS_SLOW};
 use crate::loader::SpritesheetLoader;
 use crate::renderer::Renderer;
 use crate::utils::get_cursor_pos;
@@ -29,7 +22,7 @@ enum _State {
 pub struct Animator {
     config: Config,
     loader: SpritesheetLoader,
-    renderer: Renderer,
+    renderer: Box<Renderer>,
     rng: ThreadRng,
     max_x: i32,
     max_y: i32,
@@ -43,16 +36,14 @@ impl Animator {
     pub fn new(
         config: Config,
         loader: SpritesheetLoader,
-        renderer: Renderer,
+        renderer: Box<Renderer>,
     ) -> anyhow::Result<Self> {
-        let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-        if screen_width <= 0 || screen_height <= 0 {
-            anyhow::bail!("GetSystemMetrics error");
-        }
-
-        let max_x = screen_width.saturating_sub(loader.frame_width().try_into()?);
-        let max_y = screen_height.saturating_sub(loader.frame_height().try_into()?);
+        let max_x = renderer
+            .screen_width()
+            .saturating_sub(loader.frame_width().try_into()?);
+        let max_y = renderer
+            .screen_height()
+            .saturating_sub(loader.frame_height().try_into()?);
 
         let mut rng = rand::rng();
         let initial_position = POINT {
@@ -69,6 +60,15 @@ impl Animator {
                 .collect::<Vec<u16>>(),
         )
         .context("Cannot construct distribution")?;
+
+        let random_range = config.random_action_interval_secs;
+        let timer_change_action = renderer.add_timer(
+            rng.random_range(
+                random_range.0.saturating_mul(1000)..=random_range.1.saturating_mul(1000),
+            ),
+            callback,
+        );
+        let timer_fps = renderer.add_timer(FPS_MS_FAST, callback);
 
         Ok(Self {
             config,
@@ -89,33 +89,30 @@ impl Animator {
         self.next_frame_ii = 0;
     }
 
-    pub fn reset_change_action_timer(&mut self, window: HWND) -> anyhow::Result<()> {
+    pub fn reset_change_action_timer(&mut self) -> anyhow::Result<()> {
         let random_range = self.config.random_action_interval_secs;
-        let change_action_ms = self.rng.random_range(
+        let interval_ms = self.rng.random_range(
             random_range.0.saturating_mul(1000)..=random_range.1.saturating_mul(1000),
         );
-        if unsafe { SetTimer(window, TIMER_ID_CHANGE_ACTION, change_action_ms, None) } == 0 {
-            return Err(Error::last_os_error()).context("SetTimer error");
-        }
+        self.renderer
+            .update_timer(TIMER_ID_CHANGE_ACTION, interval_ms)?;
 
         Ok(())
     }
 
-    pub fn reset_fps_timer(&mut self, window: HWND, ms: u32) -> anyhow::Result<()> {
-        if unsafe { SetTimer(window, TIMER_ID_FPS, ms, None) } == 0 {
-            return Err(Error::last_os_error()).context("SetTimer error");
-        }
+    pub fn reset_fps_timer(&self, ms: u32) -> anyhow::Result<()> {
+        self.renderer.update_timer(TIMER_ID_FPS, ms)?;
 
         Ok(())
     }
 
-    pub fn idle(&mut self, window: HWND) -> anyhow::Result<()> {
+    pub fn idle(&mut self) -> anyhow::Result<()> {
         match &self.state {
             _State::Idle(..) => Ok(()),
             _State::Run { .. } | _State::Drop { .. } | _State::Custom(..) => {
                 let index = self.idle_range.sample(&mut self.rng);
                 self.set_state(_State::Idle(index));
-                self.reset_fps_timer(window, FPS_MS_SLOW)?;
+                self.reset_fps_timer(FPS_MS_SLOW)?;
                 Ok(())
             }
             other => {
@@ -124,14 +121,14 @@ impl Animator {
         }
     }
 
-    pub fn run(&mut self, window: HWND) -> anyhow::Result<()> {
+    pub fn run(&mut self) -> anyhow::Result<()> {
         match &self.state {
             _State::Idle(..) | _State::Run { .. } => {
                 let next_state = _State::Run {
                     x: self.rng.random_range(0..=self.max_x),
                 };
                 self.set_state(next_state);
-                self.reset_fps_timer(window, FPS_MS_SLOW)?;
+                self.reset_fps_timer(FPS_MS_SLOW)?;
                 Ok(())
             }
             other => {
@@ -140,17 +137,17 @@ impl Animator {
         }
     }
 
-    pub fn lift(&mut self, window: HWND, offset_x: i32, offset_y: i32) -> anyhow::Result<()> {
+    pub fn lift(&mut self, offset_x: i32, offset_y: i32) -> anyhow::Result<()> {
         self.set_state(_State::Lift { offset_x, offset_y });
-        self.reset_fps_timer(window, FPS_MS_FAST)?;
+        self.reset_fps_timer(FPS_MS_FAST)?;
         Ok(())
     }
 
-    pub fn drop(&mut self, window: HWND) -> anyhow::Result<()> {
+    pub fn drop(&mut self) -> anyhow::Result<()> {
         match &self.state {
             _State::Lift { .. } => {
                 self.set_state(_State::Drop { v: 0 });
-                self.reset_fps_timer(window, FPS_MS_NORMAL)?;
+                self.reset_fps_timer(FPS_MS_NORMAL)?;
                 Ok(())
             }
             other => {
@@ -175,6 +172,7 @@ impl Animator {
     ///
     /// This function is called every frame, so it has to be extremely lightweight.
     pub fn render_next_frame(&mut self, window: HWND) -> anyhow::Result<()> {
+        let mut new_position = self.current_position;
         let action = match &mut self.state {
             _State::Idle(index) => {
                 &self
@@ -186,35 +184,35 @@ impl Animator {
                     .action
             }
             _State::Run { x } => {
-                let dx = x.saturating_sub(self.current_position.x);
+                let dx = x.saturating_sub(new_position.x);
 
                 if dx == 0 {
-                    self.idle(window).context("Cannot transition to Idle")?;
+                    self.idle().context("Cannot transition to Idle")?;
                     return self.render_next_frame(window);
                 }
 
                 let step = dx.abs().min(self.config.step_per_frame);
                 if dx > 0 {
-                    self.current_position.x = self.current_position.x.saturating_add(step);
+                    new_position.x = new_position.x.saturating_add(step);
                     &self.config.actions.run_right
                 } else {
-                    self.current_position.x = self.current_position.x.saturating_sub(step);
+                    new_position.x = new_position.x.saturating_sub(step);
                     &self.config.actions.run_left
                 }
             }
             _State::Lift { offset_x, offset_y } => {
                 let cursor = get_cursor_pos().context("Cannot get cursor position")?;
 
-                self.current_position.x = cursor.x.saturating_sub(*offset_x);
-                self.current_position.y = cursor.y.saturating_sub(*offset_y);
+                new_position.x = cursor.x.saturating_sub(*offset_x);
+                new_position.y = cursor.y.saturating_sub(*offset_y);
                 &self.config.actions.lift
             }
             _State::Drop { v } => {
-                self.current_position.y = self.current_position.y.saturating_add(*v);
+                new_position.y = new_position.y.saturating_add(*v);
                 *v = v.saturating_add(self.config.gravity);
-                if self.current_position.y >= self.max_y {
-                    self.current_position.y = self.max_y;
-                    self.idle(window).context("Cannot transition to Idle")?;
+                if new_position.y >= self.max_y {
+                    new_position.y = self.max_y;
+                    self.idle().context("Cannot transition to Idle")?;
                     return self.render_next_frame(window);
                 }
 
@@ -230,16 +228,63 @@ impl Animator {
             self.next_frame_ii = 0;
         }
 
+        let old_left = self.current_position.x;
+        let old_top = self.current_position.y;
+        let old_right = old_left.saturating_add(self.loader.frame_width().try_into()?);
+        let old_bottom = old_top.saturating_add(self.loader.frame_height().try_into()?);
+
+        self.renderer.clear_pixels(&RECT {
+            left: old_left,
+            top: old_top,
+            right: old_right,
+            bottom: old_bottom,
+        });
+
+        let new_left = new_position.x;
+        let new_top = new_position.y;
+        let new_right = new_left.saturating_add(self.loader.frame_width().try_into()?);
+        let new_bottom = new_top.saturating_add(self.loader.frame_height().try_into()?);
+
         if let Some(frame_index) = action.frames.get(self.next_frame_ii)
             && let Some(frame) = self.loader.frame(*frame_index)
         {
-            self.renderer.pixels_mut().copy_from_slice(frame);
+            self.renderer.draw_pixels(
+                &RECT {
+                    left: new_left,
+                    top: new_top,
+                    right: new_right,
+                    bottom: new_bottom,
+                },
+                frame,
+            )?;
             self.next_frame_ii = self.next_frame_ii.wrapping_add(1);
         }
 
+        let dirty = RECT {
+            left: new_position.x.min(self.current_position.x),
+            top: new_position.y.min(self.current_position.y),
+            right: new_position
+                .x
+                .saturating_add(self.loader.frame_width().try_into()?)
+                .max(
+                    self.current_position
+                        .x
+                        .saturating_add(self.loader.frame_width().try_into()?),
+                ),
+            bottom: new_position
+                .y
+                .saturating_add(self.loader.frame_height().try_into()?)
+                .max(
+                    self.current_position
+                        .y
+                        .saturating_add(self.loader.frame_height().try_into()?),
+                ),
+        };
+
         self.renderer
-            .update(window, &self.current_position)
+            .update(&dirty)
             .context("Cannot render next frame")?;
+        self.current_position = new_position;
 
         Ok(())
     }

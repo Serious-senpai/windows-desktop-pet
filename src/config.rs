@@ -20,9 +20,6 @@ pub const TRAY_ICON_TOOLTIP: &U16CStr = u16cstr!("Windows Desktop Pet");
 
 pub const MENU_EXIT: usize = 1;
 
-pub const TIMER_ID_FPS: usize = 1;
-pub const TIMER_ID_CHANGE_ACTION: usize = 2;
-
 pub const FPS_MS_SLOW: u32 = 1000 / 4; // 4 FPS
 pub const FPS_MS_NORMAL: u32 = 1000 / 15; // 15 FPS
 pub const FPS_MS_FAST: u32 = 1000 / 25; // 25 FPS

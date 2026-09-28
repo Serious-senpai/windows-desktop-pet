@@ -5,6 +5,7 @@ mod config;
 mod debug;
 mod loader;
 mod renderer;
+mod timer;
 mod tray;
 mod utils;
 
@@ -17,11 +18,11 @@ use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::MK_LBUTTON;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, IDC_ARROW, KillTimer,
-    LoadCursorW, LoadIconW, MSG, PostMessageW, PostQuitMessage, RegisterClassExW,
-    SW_SHOWNOACTIVATE, SetTimer, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND, WM_DESTROY,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetSystemMetrics, IDC_ARROW,
+    KillTimer, LoadCursorW, LoadIconW, MSG, PostMessageW, PostQuitMessage, RegisterClassExW,
+    SM_CXSCREEN, SM_CYSCREEN, SW_SHOWNOACTIVATE, SetTimer, ShowWindow, TranslateMessage, WM_CLOSE,
+    WM_COMMAND, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows_sys::w;
 
@@ -137,50 +138,6 @@ unsafe extern "system" fn window_proc(
     }
 }
 
-fn create_window(instance: &mut HINSTANCE, width: i32, height: i32) -> anyhow::Result<HWND> {
-    *instance = unsafe { GetModuleHandleW(ptr::null()) };
-
-    let cls_attr = WNDCLASSEXW {
-        cbSize: mem::size_of::<WNDCLASSEXW>().try_into()?,
-        style: 0,
-        lpfnWndProc: Some(window_proc),
-        cbClsExtra: 0,
-        cbWndExtra: 0,
-        hInstance: *instance,
-        hIcon: ptr::null_mut(),
-        hCursor: unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) },
-        hbrBackground: ptr::null_mut(),
-        lpszMenuName: ptr::null(),
-        lpszClassName: WINDOW_CLASS_NAME,
-        hIconSm: ptr::null_mut(),
-    };
-    if unsafe { RegisterClassExW(&cls_attr) } == 0 {
-        return Err(Error::last_os_error()).context("RegisterClassExW error");
-    }
-
-    let window = unsafe {
-        CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-            WINDOW_CLASS_NAME,
-            w!("Windows Desktop Pet"),
-            WS_POPUP,
-            0, // Will be overwritten later by UpdateLayeredWindow anyway
-            0, // Will be overwritten later by UpdateLayeredWindow anyway
-            width,
-            height,
-            ptr::null_mut(),
-            ptr::null_mut(),
-            *instance,
-            ptr::null(),
-        )
-    };
-    if window.is_null() {
-        return Err(Error::last_os_error()).context("CreateWindowExW error");
-    }
-
-    Ok(window)
-}
-
 fn main() {
     if let Err(e) = _main() {
         log!("Application error: {e:?}");
@@ -188,6 +145,11 @@ fn main() {
 }
 
 fn _main() -> anyhow::Result<()> {
+    let instance = unsafe { GetModuleHandleW(ptr::null()) };
+    if instance.is_null() {
+        return Err(Error::last_os_error()).context("GetModuleHandleW error");
+    }
+
     let current_dir = env::current_exe()
         .context("Cannot get current exe path")?
         .parent()
@@ -207,7 +169,7 @@ fn _main() -> anyhow::Result<()> {
     let spritesheet = fs::File::open(&spritesheet_path).with_context(|| {
         format!(
             "Cannot open spritesheet file {}",
-            config.spritesheet_path.display()
+            spritesheet_path.display(),
         )
     })?;
     let loader = SpritesheetLoader::new(BufReader::new(spritesheet), config.rows, config.columns)
@@ -218,35 +180,11 @@ fn _main() -> anyhow::Result<()> {
         loader.frame_height(),
     );
 
-    let renderer = Renderer::new(
-        loader.frame_width().try_into()?,
-        loader.frame_height().try_into()?,
-    )
-    .with_context(|| "Cannot create renderer")?;
-
-    let mut instance = HINSTANCE::default();
-    let window = create_window(
-        &mut instance,
-        loader.frame_width().try_into()?,
-        loader.frame_height().try_into()?,
-    )
-    .with_context(|| "Cannot create window")?;
-    unsafe {
-        ShowWindow(window, SW_SHOWNOACTIVATE);
-    }
-
-    // Initial state: drop -> FPS_MS_FAST -> idle -> FPS_MS_SLOW
-    if unsafe { SetTimer(window, TIMER_ID_FPS, FPS_MS_FAST, None) } == 0 {
-        return Err(Error::last_os_error()).context("SetTimer error");
-    }
-
-    let guard1 = DropGuard::new((), |_| unsafe {
-        KillTimer(window, TIMER_ID_FPS);
-    });
+    let renderer = Renderer::new(instance).with_context(|| "Cannot create renderer")?;
 
     let mut animator = Animator::new(config, loader, renderer).context("Cannot create animator")?;
     animator
-        .reset_change_action_timer(window)
+        .reset_change_action_timer()
         .context("Cannot initialize change action timer")?;
     let guard2 = DropGuard::new((), |_| unsafe {
         KillTimer(window, TIMER_ID_CHANGE_ACTION);
