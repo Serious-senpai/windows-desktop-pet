@@ -6,7 +6,7 @@
 version: 2
 updates:
   - package-ecosystem: "cargo" # See documentation for possible values
-    directories: "/"
+    directory: "/"
     schedule:
       interval: "daily"
     commit-message:
