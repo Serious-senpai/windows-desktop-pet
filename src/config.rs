@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use widestring::{U16CStr, u16cstr};
 use windows_sys::Win32::Graphics::Gdi::{AC_SRC_ALPHA, AC_SRC_OVER, BLENDFUNCTION};
 use windows_sys::Win32::UI::WindowsAndMessaging::WM_USER;
@@ -66,13 +67,28 @@ impl Config {
     }
 }
 
+#[derive(Debug, Deserialize, Eq, Hash, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OneshotAction {
+    Wave,
+    Fail,
+    Wait,
+    Think,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Actions {
-    pub idle: Vec<WeightedAction>,
+    pub idle: Vec<IdleAction>,
+    #[serde(deserialize_with = "action_repeat_deserialize")]
     pub run_right: Action,
+    #[serde(deserialize_with = "action_repeat_deserialize")]
     pub run_left: Action,
-    pub lift: Action,
-    pub drop: Action,
+    #[serde(deserialize_with = "action_repeat_deserialize")]
+    pub lift: Action, // run
+    #[serde(deserialize_with = "action_no_repeat_deserialize")]
+    pub drop: Action, // jump
+    #[serde(deserialize_with = "action_map_no_repeat_deserialize")]
+    pub oneshot: HashMap<OneshotAction, Action>,
 }
 
 impl Actions {
@@ -93,24 +109,29 @@ impl Actions {
         self.lift.validate().context("Lift action is invalid")?;
         self.drop.validate().context("Drop action is invalid")?;
 
+        for value in self.oneshot.values() {
+            value.validate().context("Oneshot action is invalid")?;
+        }
+
         Ok(())
     }
 }
 
 #[derive(Debug, Deserialize)]
-pub struct WeightedAction {
+pub struct IdleAction {
+    #[serde(deserialize_with = "action_repeat_deserialize")]
     pub action: Action,
     pub weight: u16,
 }
 
-impl WeightedAction {
+impl IdleAction {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.action.validate().context("Action is invalid")?;
         Ok(())
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Action {
     pub frames: Vec<usize>,
     pub repeat: bool,
@@ -124,4 +145,47 @@ impl Action {
 
         Ok(())
     }
+}
+
+fn action_repeat_deserialize<'de, D>(deserializer: D) -> Result<Action, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let frames = Vec::<usize>::deserialize(deserializer)?;
+    Ok(Action {
+        frames,
+        repeat: true,
+    })
+}
+
+fn action_no_repeat_deserialize<'de, D>(deserializer: D) -> Result<Action, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let frames = Vec::<usize>::deserialize(deserializer)?;
+    Ok(Action {
+        frames,
+        repeat: false,
+    })
+}
+
+fn action_map_no_repeat_deserialize<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<OneshotAction, Action>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let map = HashMap::<OneshotAction, Vec<usize>>::deserialize(deserializer)?;
+    let mut result = HashMap::with_capacity(map.len());
+    for (key, frames) in map {
+        result.insert(
+            key,
+            Action {
+                frames,
+                repeat: false,
+            },
+        );
+    }
+
+    Ok(result)
 }

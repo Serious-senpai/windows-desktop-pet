@@ -101,7 +101,7 @@ impl Animator {
         Ok(())
     }
 
-    pub fn reset_fps_timer(&mut self, window: HWND, ms: u32) -> anyhow::Result<()> {
+    fn reset_fps_timer(&mut self, window: HWND, ms: u32) -> anyhow::Result<()> {
         if unsafe { SetTimer(window, TIMER_ID_FPS, ms, None) } == 0 {
             return Err(Error::last_os_error()).context("SetTimer error");
         }
@@ -228,6 +228,12 @@ impl Animator {
             {
                 self.renderer.pixels_mut().copy_from_slice(frame);
                 self.next_frame_ii = self.next_frame_ii.wrapping_add(1);
+            } else {
+                anyhow::bail!(
+                    "Cannot render frame: next_frame_ii={}, frame.len()={}",
+                    self.next_frame_ii,
+                    action.frames.len(),
+                );
             }
         }
 
