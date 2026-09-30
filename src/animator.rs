@@ -84,6 +84,19 @@ impl Animator {
         })
     }
 
+    pub fn update_screen_size(
+        &mut self,
+        screen_width: i32,
+        screen_height: i32,
+    ) -> anyhow::Result<()> {
+        self.max_x = screen_width.saturating_sub(self.loader.frame_width().try_into()?);
+        self.max_y = screen_height.saturating_sub(self.loader.frame_height().try_into()?);
+        self.current_position.x = self.current_position.x.clamp(0, self.max_x);
+        self.current_position.y = self.current_position.y.clamp(0, self.max_y);
+
+        Ok(())
+    }
+
     fn set_state(&mut self, state: State) {
         self.state = state;
         self.next_frame_ii = 0;

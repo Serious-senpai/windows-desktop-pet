@@ -1,20 +1,46 @@
 use std::io::Error;
+use std::marker::PhantomData;
 use std::{mem, ptr};
 
 use anyhow::Context;
-use windows_sys::Win32::Foundation::{HWND, POINT};
+use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Shell::{
     NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, NOTIFYICONDATAW_0,
     Shell_NotifyIconW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, GetCursorPos, HICON, MF_STRING, PostMessageW,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, HICON, HMENU, MF_STRING, PostMessageW,
     SetForegroundWindow, TPM_RIGHTBUTTON, TrackPopupMenu, WM_NULL,
 };
 use windows_sys::core::GUID;
 use windows_sys::w;
 
 use crate::config::{MENU_EXIT, TRAY_ICON_ID, TRAY_ICON_TOOLTIP, WM_TRAYICON};
+use crate::utils::get_cursor_pos;
+
+pub struct TrayPopup<'a> {
+    menu: HMENU,
+    phantom: PhantomData<&'a ()>,
+}
+
+impl TrayPopup<'_> {
+    pub fn new(menu: HMENU) -> Self {
+        Self {
+            menu,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl Drop for TrayPopup<'_> {
+    fn drop(&mut self) {
+        if !self.menu.is_null() {
+            unsafe {
+                let _ = DestroyMenu(self.menu);
+            }
+        }
+    }
+}
 
 pub struct TrayIcon {
     window: HWND,
@@ -56,20 +82,21 @@ impl TrayIcon {
         Ok(result)
     }
 
-    pub fn show(&self) -> anyhow::Result<()> {
+    pub fn show(&self) -> anyhow::Result<TrayPopup<'_>> {
         let menu = unsafe { CreatePopupMenu() };
         if menu.is_null() {
             return Err(Error::last_os_error()).context("CreatePopupMenu error");
         }
 
+        let result = TrayPopup::new(menu);
+
         if unsafe { AppendMenuW(menu, MF_STRING, MENU_EXIT, w!("Exit")) } == 0 {
             return Err(Error::last_os_error()).context("AppendMenuW error");
         }
 
-        let mut cursor = POINT::default();
+        let cursor = get_cursor_pos()?;
         unsafe {
             SetForegroundWindow(self.window);
-            GetCursorPos(&mut cursor);
             TrackPopupMenu(
                 menu,
                 TPM_RIGHTBUTTON,
@@ -82,7 +109,7 @@ impl TrayIcon {
             PostMessageW(self.window, WM_NULL, 0, 0);
         }
 
-        Ok(())
+        Ok(result)
     }
 }
 

@@ -16,18 +16,19 @@ use anyhow::Context;
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::MK_LBUTTON;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, IDC_ARROW, KillTimer,
     LoadCursorW, LoadIconW, MSG, PostMessageW, PostQuitMessage, RegisterClassExW,
-    SW_SHOWNOACTIVATE, SetTimer, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND, WM_DESTROY,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    SW_SHOWNOACTIVATE, SetTimer, ShowWindow, TranslateMessage, WM_CAPTURECHANGED, WM_CLOSE,
+    WM_COMMAND, WM_DESTROY, WM_DISPLAYCHANGE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER,
+    WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows_sys::w;
 
 use crate::animator::Animator;
 use crate::config::{
-    Config, FPS_MS_FAST, MENU_EXIT, TIMER_ID_FPS, TIMER_ID_START_RUNNING, WINDOW_CLASS_NAME,
+    Config, FPS_MS_NORMAL, MENU_EXIT, TIMER_ID_FPS, TIMER_ID_START_RUNNING, WINDOW_CLASS_NAME,
     WM_TRAYICON,
 };
 use crate::loader::SpritesheetLoader;
@@ -46,12 +47,9 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     // log!("Received {hwnd:?} {msg:#x} {wparam:?} {lparam:?}");
     match msg {
-        WM_DESTROY => {
-            unsafe {
-                PostQuitMessage(0);
-            }
-            0
-        }
+        WM_DESTROY => unsafe {
+            PostQuitMessage(0);
+        },
         WM_TIMER => {
             match wparam {
                 TIMER_ID_FPS => {
@@ -80,7 +78,6 @@ unsafe extern "system" fn window_proc(
                     log!("Unknown timer id: {other}");
                 }
             }
-            0
         }
         WM_LBUTTONDOWN => {
             if u32::try_from(wparam).unwrap_or_default() == MK_LBUTTON {
@@ -100,9 +97,17 @@ unsafe extern "system" fn window_proc(
                     log!("Cannot lift: {e:?}");
                 }
             }
-            0
+
+            unsafe {
+                SetCapture(hwnd);
+            }
         }
         WM_LBUTTONUP => {
+            if unsafe { ReleaseCapture() } == 0 {
+                log!("ReleaseCapture error: {:?}", Error::last_os_error());
+            }
+        }
+        WM_CAPTURECHANGED => {
             let animator = ANIMATOR.load(Ordering::Acquire);
             // SAFETY: Single-thread
             if let Some(animator) = unsafe { animator.as_mut() }
@@ -110,8 +115,27 @@ unsafe extern "system" fn window_proc(
             {
                 log!("Cannot drop: {e:?}");
             }
+        }
+        WM_DISPLAYCHANGE => {
+            let (screen_width, screen_height) = match get_lparam_xy(lparam) {
+                Ok((x, y)) => (x, y),
+                Err(e) => {
+                    log!("get_lparam_xy error: {e:?}");
+                    return 0;
+                }
+            };
 
-            0
+            let animator = ANIMATOR.load(Ordering::Acquire);
+            // SAFETY: Single-thread
+            if let Some(animator) = unsafe { animator.as_mut() } {
+                if let Err(e) = animator.update_screen_size(screen_width, screen_height) {
+                    log!("Cannot update screen size: {e:?}");
+                }
+
+                if let Err(e) = animator.idle(hwnd) {
+                    log!("Cannot transition to idle after updating screen size: {e:?}");
+                }
+            }
         }
         WM_TRAYICON => {
             let tray_icon = TRAY_ICON.load(Ordering::Acquire);
@@ -123,7 +147,6 @@ unsafe extern "system" fn window_proc(
             {
                 log!("Error showing tray icon menu: {e:?}");
             }
-            0
         }
         WM_COMMAND => {
             if let MENU_EXIT = wparam {
@@ -131,10 +154,11 @@ unsafe extern "system" fn window_proc(
                     PostMessageW(hwnd, WM_CLOSE, 0, 0);
                 }
             }
-            0
         }
-        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+        _ => return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
+
+    0
 }
 
 fn create_window(instance: &mut HINSTANCE, width: i32, height: i32) -> anyhow::Result<HWND> {
@@ -235,8 +259,8 @@ fn _main() -> anyhow::Result<()> {
         ShowWindow(window, SW_SHOWNOACTIVATE);
     }
 
-    // Initial state: drop -> FPS_MS_FAST -> idle -> FPS_MS_SLOW
-    if unsafe { SetTimer(window, TIMER_ID_FPS, FPS_MS_FAST, None) } == 0 {
+    // Initial state: drop -> FPS_MS_NORMAL -> idle -> FPS_MS_SLOW
+    if unsafe { SetTimer(window, TIMER_ID_FPS, FPS_MS_NORMAL, None) } == 0 {
         return Err(Error::last_os_error()).context("SetTimer error");
     }
 

@@ -1,6 +1,5 @@
-use std::env;
-use std::os::windows::fs;
 use std::path::PathBuf;
+use std::{env, fs};
 
 #[cfg(debug_assertions)]
 const PROFILE: &str = "debug";
@@ -22,15 +21,14 @@ fn main() {
         .compile()
         .unwrap();
 
-    // Ignore error when creating symlinks, as the target file may already exist
     let exe_dir = root.join("target").join(PROFILE);
-    let _ = fs::symlink_file(
+    let _ = fs::copy(
         root.join("assets").join("config.json"),
         exe_dir.join("config.json"),
     );
-    let _ = fs::symlink_file(
+    let _ = fs::copy(
         root.join("assets")
-            .join("miku.codex-pet")
+            .join("firefly.codex-pet")
             .join("spritesheet.webp"),
         exe_dir.join("spritesheet.webp"),
     );
