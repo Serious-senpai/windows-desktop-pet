@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = { version = "1.0.104", default-features = false }
+anyhow = { version = "1.0.104", default-features = false, features = ["backtrace"] }
 image = { version = "0.25.10", default-features = false, features = ["default-formats"] }
 rand = { version = "0.10.3", default-features = false, features = ["alloc", "thread_rng"] }
 serde = { version = "1.0.229", default-features = false, features = ["derive"] }

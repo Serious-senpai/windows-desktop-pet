@@ -37,13 +37,12 @@ impl Renderer {
                 cy: height,
             },
             area: usize::try_from(width)
-                .and_then(|w| usize::try_from(height).map(|h| w.strict_mul(h)))
-                .context("usize::try_from failure")?,
+                .and_then(|w| usize::try_from(height).map(|h| w.strict_mul(h)))?,
         };
 
         let bitmap_info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
-                biSize: mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biSize: mem::size_of::<BITMAPINFOHEADER>().try_into()?,
                 biWidth: width,
                 biHeight: -height,
                 biPlanes: 1,

@@ -8,6 +8,7 @@ mod renderer;
 mod tray;
 mod utils;
 
+use std::fs::File;
 use std::io::{BufReader, Error};
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::{env, fs, mem, ptr};
@@ -224,6 +225,10 @@ fn main() {
 }
 
 fn impl_main() -> anyhow::Result<()> {
+    unsafe {
+        env::set_var("RUST_BACKTRACE", "1");
+    }
+
     let current_dir = env::current_exe()
         .context("Cannot get current exe path")?
         .parent()
@@ -233,8 +238,10 @@ fn impl_main() -> anyhow::Result<()> {
     let config_path = current_dir.join("config.json");
     log!("Loading config from {}", config_path.display());
 
-    let file = fs::File::open(&config_path).context("Cannot open config file")?;
-    let config = serde_json::from_reader::<_, Config>(file).context("Cannot parse config file")?;
+    let file = fs::File::open(&config_path)
+        .with_context(|| format!("Cannot open config file at {}", config_path.display()))?;
+    let config = serde_json::from_reader::<File, Config>(file)
+        .with_context(|| format!("Cannot parse config file {}", config_path.display()))?;
     log!("Loaded config: {config:?}");
     config.validate().context("Config is invalid")?;
 
@@ -258,7 +265,7 @@ fn impl_main() -> anyhow::Result<()> {
         loader.frame_width().try_into()?,
         loader.frame_height().try_into()?,
     )
-    .with_context(|| "Cannot create renderer")?;
+    .context("Cannot create renderer")?;
 
     let mut instance = HINSTANCE::default();
     let window = create_window(
@@ -266,7 +273,7 @@ fn impl_main() -> anyhow::Result<()> {
         loader.frame_width().try_into()?,
         loader.frame_height().try_into()?,
     )
-    .with_context(|| "Cannot create window")?;
+    .context("Cannot create window")?;
     unsafe {
         ShowWindow(window, SW_SHOWNOACTIVATE);
     }
@@ -293,7 +300,7 @@ fn impl_main() -> anyhow::Result<()> {
         return Err(Error::last_os_error()).context("LoadIconW error");
     }
 
-    let tray_icon = TrayIcon::new(window, icon).with_context(|| "Cannot create tray icon")?;
+    let tray_icon = TrayIcon::new(window, icon).context("Cannot create tray icon")?;
 
     TRAY_ICON.store(Box::into_raw(Box::new(tray_icon)), Ordering::Release);
 
