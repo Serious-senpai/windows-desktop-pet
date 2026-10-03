@@ -12,7 +12,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::config::{
-    Config, FPS_MS_FAST, FPS_MS_MAXIMUM_ACTION, FPS_MS_NORMAL, FPS_MS_SLOW, TIMER_ID_FPS,
+    Config, FPS_FAST, FPS_MAXIMUM_ACTION, FPS_NORMAL, FPS_SLOW, TIMER_ID_FPS,
     TIMER_ID_START_RUNNING,
 };
 use crate::loader::SpritesheetLoader;
@@ -65,8 +65,6 @@ impl Animator {
         let idle_range = WeightedIndex::new(config.actions.idle.iter().map(|action| action.weight))
             .context("Cannot construct distribution")?;
 
-        let now = Instant::now();
-
         Ok(Self {
             config,
             loader,
@@ -75,9 +73,10 @@ impl Animator {
             max_x,
             max_y,
             state: State::Drop { v: 0 },
-            action_frame_last_update: now
-                .checked_sub(Duration::from_millis(FPS_MS_MAXIMUM_ACTION))
-                .unwrap_or(now),
+            action_frame_last_update: {
+                let now = Instant::now();
+                now.checked_sub(FPS_MAXIMUM_ACTION).unwrap_or(now)
+            },
             next_frame_ii: 0,
             current_position: initial_position,
             idle_range,
@@ -102,7 +101,7 @@ impl Animator {
         self.next_frame_ii = 0;
     }
 
-    pub fn reset_change_action_timer(&mut self, window: HWND) -> anyhow::Result<()> {
+    pub fn reset_change_action_timer(&mut self, window: HWND) -> anyhow::Result<usize> {
         let random_range = self.config.random_action_interval_secs;
         let change_action_ms = self.rng.random_range(
             random_range.0.saturating_mul(1000)..=random_range.1.saturating_mul(1000),
@@ -111,15 +110,26 @@ impl Animator {
             return Err(Error::last_os_error()).context("SetTimer error");
         }
 
-        Ok(())
+        Ok(TIMER_ID_START_RUNNING)
     }
 
-    fn reset_fps_timer(&mut self, window: HWND, ms: u32) -> anyhow::Result<()> {
-        if unsafe { SetTimer(window, TIMER_ID_FPS, ms, None) } == 0 {
+    pub fn reset_fps_timer(&mut self, window: HWND, duration: &Duration) -> anyhow::Result<usize> {
+        if unsafe {
+            SetTimer(
+                window,
+                TIMER_ID_FPS,
+                duration
+                    .as_millis()
+                    .try_into()
+                    .with_context(|| format!("Cannot convert {duration:?} to FPS"))?,
+                None,
+            )
+        } == 0
+        {
             return Err(Error::last_os_error()).context("SetTimer error");
         }
 
-        Ok(())
+        Ok(TIMER_ID_FPS)
     }
 
     pub fn idle(&mut self, window: HWND) -> anyhow::Result<()> {
@@ -127,7 +137,7 @@ impl Animator {
             State::Idle(..) | State::Run { .. } | State::Drop { .. } => {
                 let index = self.idle_range.sample(&mut self.rng);
                 self.set_state(State::Idle(index));
-                self.reset_fps_timer(window, FPS_MS_SLOW)?;
+                self.reset_fps_timer(window, &FPS_SLOW)?;
                 Ok(())
             }
             other => {
@@ -143,7 +153,7 @@ impl Animator {
                     x: self.rng.random_range(0..=self.max_x),
                 };
                 self.set_state(next_state);
-                self.reset_fps_timer(window, FPS_MS_SLOW)?;
+                self.reset_fps_timer(window, &FPS_SLOW)?;
                 Ok(())
             }
             other => {
@@ -154,7 +164,7 @@ impl Animator {
 
     pub fn lift(&mut self, window: HWND, offset_x: i32, offset_y: i32) -> anyhow::Result<()> {
         self.set_state(State::Lift { offset_x, offset_y });
-        self.reset_fps_timer(window, FPS_MS_FAST)?;
+        self.reset_fps_timer(window, &FPS_FAST)?;
         Ok(())
     }
 
@@ -162,7 +172,7 @@ impl Animator {
         match &self.state {
             State::Lift { .. } => {
                 self.set_state(State::Drop { v: 0 });
-                self.reset_fps_timer(window, FPS_MS_NORMAL)?;
+                self.reset_fps_timer(window, &FPS_NORMAL)?;
                 Ok(())
             }
             other => {
@@ -222,7 +232,7 @@ impl Animator {
             }
         };
 
-        if self.action_frame_last_update.elapsed().as_millis() >= FPS_MS_MAXIMUM_ACTION.into() {
+        if self.action_frame_last_update.elapsed() >= FPS_MAXIMUM_ACTION {
             self.action_frame_last_update = Instant::now();
 
             if self.next_frame_ii >= action.frames.len() {

@@ -2,6 +2,7 @@
     "spritesheet_path": "spritesheet.webp",
     "rows": 9,
     "columns": 8,
+    "resize_percentage": 90,
     "random_action_interval_secs": [
         30,
         60

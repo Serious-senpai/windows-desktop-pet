@@ -17,19 +17,20 @@ fn main() {
         .set("ProductName", "Windows Desktop Pet")
         .set("OriginalFilename", "windows-desktop-pet.exe")
         .set("InternalName", "windows-desktop-pet")
-        .set_language(0x0409) // English (United States)
         .compile()
         .unwrap();
 
     let exe_dir = root.join("target").join(PROFILE);
-    let _ = fs::copy(
+    fs::copy(
         root.join("assets").join("config.json"),
         exe_dir.join("config.json"),
-    );
-    let _ = fs::copy(
+    )
+    .unwrap();
+    fs::copy(
         root.join("assets")
             .join("firefly.codex-pet")
             .join("spritesheet.webp"),
         exe_dir.join("spritesheet.webp"),
-    );
+    )
+    .unwrap();
 }

@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod animator;
 mod config;
@@ -13,14 +13,15 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use std::{env, fs, mem, ptr};
 
 use anyhow::Context;
+use widestring::U16CString;
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemServices::MK_LBUTTON;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, IDC_ARROW, KillTimer,
-    LoadCursorW, LoadIconW, MSG, PostMessageW, PostQuitMessage, RegisterClassExW,
-    SW_SHOWNOACTIVATE, SetTimer, ShowWindow, TranslateMessage, WM_CAPTURECHANGED, WM_CLOSE,
+    LoadCursorW, LoadIconW, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, SW_SHOWNOACTIVATE, ShowWindow, TranslateMessage, WM_CAPTURECHANGED, WM_CLOSE,
     WM_COMMAND, WM_DESTROY, WM_DISPLAYCHANGE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER,
     WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
@@ -28,8 +29,8 @@ use windows_sys::w;
 
 use crate::animator::Animator;
 use crate::config::{
-    Config, FPS_MS_NORMAL, MENU_EXIT, TIMER_ID_FPS, TIMER_ID_START_RUNNING, WINDOW_CLASS_NAME,
-    WM_TRAYICON,
+    APPLICATION_TITLE, Config, FPS_NORMAL, MENU_EXIT, TIMER_ID_FPS, TIMER_ID_START_RUNNING,
+    WINDOW_CLASS_NAME, WM_TRAYICON,
 };
 use crate::loader::SpritesheetLoader;
 use crate::renderer::Renderer;
@@ -206,12 +207,23 @@ fn create_window(instance: &mut HINSTANCE, width: i32, height: i32) -> anyhow::R
 }
 
 fn main() {
-    if let Err(e) = _main() {
-        log!("Application error: {e:?}");
+    if let Err(e) = impl_main() {
+        let message = format!("{e:?}");
+        log!("Application error: {message}");
+
+        let wmessage = U16CString::from_str_truncate(&message);
+        unsafe {
+            MessageBoxW(
+                ptr::null_mut(),
+                wmessage.as_ptr(),
+                APPLICATION_TITLE.as_ptr(),
+                MB_OK | MB_ICONERROR,
+            );
+        }
     }
 }
 
-fn _main() -> anyhow::Result<()> {
+fn impl_main() -> anyhow::Result<()> {
     let current_dir = env::current_exe()
         .context("Cannot get current exe path")?
         .parent()
@@ -231,11 +243,11 @@ fn _main() -> anyhow::Result<()> {
     let spritesheet = fs::File::open(&spritesheet_path).with_context(|| {
         format!(
             "Cannot open spritesheet file {}",
-            config.spritesheet_path.display()
+            spritesheet_path.display(),
         )
     })?;
-    let loader = SpritesheetLoader::new(BufReader::new(spritesheet), config.rows, config.columns)
-        .context("Cannot load spritesheet")?;
+    let loader = SpritesheetLoader::new(BufReader::new(spritesheet), &config)
+        .with_context(|| format!("Cannot load spritesheet {}", spritesheet_path.display()))?;
     log!(
         "Frame width {}, frame height {}",
         loader.frame_width(),
@@ -259,21 +271,19 @@ fn _main() -> anyhow::Result<()> {
         ShowWindow(window, SW_SHOWNOACTIVATE);
     }
 
-    // Initial state: drop -> FPS_MS_NORMAL -> idle -> FPS_MS_SLOW
-    if unsafe { SetTimer(window, TIMER_ID_FPS, FPS_MS_NORMAL, None) } == 0 {
-        return Err(Error::last_os_error()).context("SetTimer error");
-    }
-
-    let guard1 = DropGuard::new((), |_| unsafe {
-        KillTimer(window, TIMER_ID_FPS);
+    let mut animator = Animator::new(config, loader, renderer).context("Cannot create animator")?;
+    let timer_id = animator
+        .reset_fps_timer(window, &FPS_NORMAL)
+        .context("Cannot initialize FPS timer")?;
+    let guard1 = DropGuard::new(timer_id, |id| unsafe {
+        KillTimer(window, id);
     });
 
-    let mut animator = Animator::new(config, loader, renderer).context("Cannot create animator")?;
-    animator
+    let timer_id = animator
         .reset_change_action_timer(window)
         .context("Cannot initialize change action timer")?;
-    let guard2 = DropGuard::new((), |_| unsafe {
-        KillTimer(window, TIMER_ID_START_RUNNING);
+    let guard2 = DropGuard::new(timer_id, |id| unsafe {
+        KillTimer(window, id);
     });
 
     ANIMATOR.store(Box::into_raw(Box::new(animator)), Ordering::Release);

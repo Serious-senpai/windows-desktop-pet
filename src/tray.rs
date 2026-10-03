@@ -15,7 +15,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use windows_sys::core::GUID;
 use windows_sys::w;
 
-use crate::config::{MENU_EXIT, TRAY_ICON_ID, TRAY_ICON_TOOLTIP, WM_TRAYICON};
+use crate::config::{APPLICATION_TITLE, MENU_EXIT, TRAY_ICON_ID, WM_TRAYICON};
 use crate::utils::get_cursor_pos;
 
 pub struct TrayPopup<'a> {
@@ -70,7 +70,7 @@ impl TrayIcon {
             },
         };
 
-        let tip = TRAY_ICON_TOOLTIP.as_slice_with_nul();
+        let tip = APPLICATION_TITLE.as_slice_with_nul();
         result.data.szTip[..tip.len()].copy_from_slice(tip);
         result.data.szInfo[..tip.len()].copy_from_slice(tip);
         result.data.szInfoTitle[..tip.len()].copy_from_slice(tip);
